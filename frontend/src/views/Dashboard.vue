@@ -44,9 +44,11 @@
         <el-table-column prop="location" label="地点" width="120"></el-table-column>
         <el-table-column prop="salaryRange" label="薪资" width="120"></el-table-column>
         
-        <el-table-column label="操作" fixed="right" width="180">
+        <el-table-column label="操作" fixed="right" min-width="220">
           <template #default="scope">
-            <el-button link type="primary" size="small" @click="openStatusDialog(scope.row)">改签状态</el-button>
+            <el-button link type="primary" size="small" @click="openStatusDialog(scope.row)">改签</el-button>
+            <el-button link type="warning" size="small" @click="openEditDialog(scope.row)">编辑</el-button>
+            <el-button link type="success" size="small" @click="openInterviewDrawer(scope.row)">复盘</el-button>
             <el-button link type="danger" size="small" @click="handleDelete(scope.row.id)">删除</el-button>
           </template>
         </el-table-column>
@@ -65,8 +67,8 @@
       </div>
     </el-main>
 
-    <!-- 新增投递弹窗 -->
-    <el-dialog v-model="dialogVisible" title="新增岗位投递" width="500px">
+    <!-- 新增/编辑投递弹窗 -->
+    <el-dialog v-model="dialogVisible" :title="form.id ? '编辑岗位投递' : '新增岗位投递'" width="500px">
       <el-form :model="form" :rules="rules" ref="formRef" label-width="100px">
         <el-form-item label="公司名称" prop="companyName">
           <el-input v-model="form.companyName"></el-input>
@@ -101,7 +103,7 @@
       </el-form>
       <template #footer>
         <el-button @click="dialogVisible = false">取消</el-button>
-        <el-button type="primary" @click="submitAdd" :loading="submitLoading">提交保存</el-button>
+        <el-button type="primary" @click="submitForm" :loading="submitLoading">提交保存</el-button>
       </template>
     </el-dialog>
 
@@ -117,6 +119,58 @@
       <template #footer>
         <el-button @click="statusDialogVisible = false">取消</el-button>
         <el-button type="primary" @click="submitStatusUpdate" :loading="submitLoading">确定更新</el-button>
+      </template>
+    </el-dialog>
+
+    <!-- 面试复盘抽屉 -->
+    <el-drawer v-model="drawerVisible" title="面试记录与复盘" size="40%">
+      <div style="margin-bottom: 15px;">
+        <el-button type="primary" size="small" @click="openInterviewForm">新增面试记录</el-button>
+      </div>
+
+      <el-timeline v-if="interviews.length > 0">
+        <el-timeline-item
+          v-for="item in interviews"
+          :key="item.id"
+          :timestamp="formatTime(item.scheduleTime)"
+          placement="top"
+          :type="getInterviewType(item.recordType)"
+        >
+          <el-card>
+            <h4>{{ recordTypeMap[item.recordType] || '其他环节' }}</h4>
+            <p v-if="item.coreQuestions"><strong>核心问题：</strong>{{ item.coreQuestions }}</p>
+            <p v-if="item.summary"><strong>复盘总结：</strong>{{ item.summary }}</p>
+            <p v-if="item.failReason" style="color: #F56C6C"><strong>挂经/教训：</strong>{{ item.failReason }}</p>
+          </el-card>
+        </el-timeline-item>
+      </el-timeline>
+      <el-empty v-else description="暂无面试记录" />
+    </el-drawer>
+
+    <!-- 新增面试复盘弹窗 -->
+    <el-dialog v-model="interviewDialogVisible" title="添加面试/笔试记录" width="500px">
+      <el-form :model="interviewForm" :rules="interviewRules" ref="interviewFormRef" label-width="100px">
+        <el-form-item label="环节类型" prop="recordType">
+          <el-select v-model="interviewForm.recordType" style="width: 100%">
+            <el-option v-for="(label, val) in recordTypeMap" :key="val" :label="label" :value="parseInt(val + '')"></el-option>
+          </el-select>
+        </el-form-item>
+        <el-form-item label="日程时间" prop="scheduleTime">
+          <el-date-picker v-model="interviewForm.scheduleTime" type="datetime" value-format="YYYY-MM-DDTHH:mm:ss" style="width: 100%"></el-date-picker>
+        </el-form-item>
+        <el-form-item label="核心考点" prop="coreQuestions">
+          <el-input type="textarea" :rows="3" v-model="interviewForm.coreQuestions" placeholder="如：八股文提问、手撕代码题目..."></el-input>
+        </el-form-item>
+        <el-form-item label="复盘感悟" prop="summary">
+          <el-input type="textarea" :rows="2" v-model="interviewForm.summary" placeholder="回答不好的点，需要补充的知识..."></el-input>
+        </el-form-item>
+        <el-form-item label="失败教训" prop="failReason">
+          <el-input type="textarea" :rows="2" v-model="interviewForm.failReason" placeholder="如果挂了或者面得很差，简单记录原因..."></el-input>
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="interviewDialogVisible = false">取消</el-button>
+        <el-button type="primary" @click="submitInterview" :loading="submitLoading">提交保存</el-button>
       </template>
     </el-dialog>
 
@@ -188,6 +242,7 @@ const submitLoading = ref(false);
 const formRef = ref<FormInstance>();
 
 const form = reactive({
+  id: undefined as number | undefined,
   companyName: '',
   jobTitle: '',
   channel: '',
@@ -207,23 +262,45 @@ const rules = reactive<FormRules>({
 });
 
 const openAddDialog = () => {
-  // 重置表单，并赋予默认当前时间
   if(formRef.value) formRef.value.resetFields();
+  form.id = undefined;
+  
   const now = new Date();
-  // 组装格式成 YYYY-MM-DDTHH:mm:ss
   now.setMinutes(now.getMinutes() - now.getTimezoneOffset());
   form.applyTime = now.toISOString().slice(0, 19);
   
   dialogVisible.value = true;
 };
 
-const submitAdd = () => {
+const openEditDialog = (row: any) => {
+  if(formRef.value) formRef.value.resetFields();
+  // 回填数据
+  form.id = row.id;
+  form.companyName = row.companyName;
+  form.jobTitle = row.jobTitle;
+  form.channel = row.channel;
+  form.status = row.status;
+  form.applyTime = row.applyTime;
+  form.location = row.location;
+  form.salaryRange = row.salaryRange;
+  
+  dialogVisible.value = true;
+};
+
+const submitForm = () => {
   formRef.value?.validate(async (valid) => {
     if (valid) {
       submitLoading.value = true;
       try {
-        await request.post('/applications', form);
-        ElMessage.success('录入台账成功！');
+        if (form.id) {
+          // 编辑模式
+          await request.put(`/applications/${form.id}`, form);
+          ElMessage.success('更新台账成功！');
+        } else {
+          // 新增模式
+          await request.post('/applications', form);
+          ElMessage.success('录入台账成功！');
+        }
         dialogVisible.value = false;
         loadData(); // 刷新数据
       } catch (error) { } 
@@ -268,6 +345,80 @@ const handleDelete = (id: number) => {
       loadData();
     } catch (error) { }
   }).catch(() => { });
+};
+
+// ==== 面试复盘与记录体系 (新引入) ====
+const drawerVisible = ref(false);
+const interviews = ref<any[]>([]);
+const currentAppId = ref<number | undefined>();
+
+const recordTypeMap: Record<number, string> = {
+  1: '笔试/机试', 
+  2: '一面(技术/初试)', 
+  3: '二面(技术/复试)', 
+  4: '终面(技术总监)', 
+  5: 'HR面', 
+  6: '主管面', 
+  7: '其他'
+};
+
+const getInterviewType = (type: number) => {
+  return type === 1 ? 'info' : type >= 5 ? 'success' : 'primary';
+};
+
+const loadInterviews = async (appId: number) => {
+  try {
+    const res: any = await request.get(`/interviews/application/${appId}`);
+    interviews.value = res || [];
+  } catch (error) {}
+};
+
+const openInterviewDrawer = (row: any) => {
+  currentAppId.value = row.id;
+  drawerVisible.value = true;
+  loadInterviews(row.id);
+};
+
+const interviewDialogVisible = ref(false);
+const interviewFormRef = ref<FormInstance>();
+const interviewForm = reactive({
+  applicationId: undefined as number | undefined,
+  recordType: 2, // 默认一面
+  scheduleTime: '',
+  coreQuestions: '',
+  summary: '',
+  failReason: ''
+});
+
+const interviewRules = reactive<FormRules>({
+  recordType: [{ required: true, message: '请选择环节类型', trigger: 'change' }],
+  scheduleTime: [{ required: true, message: '请选择日程时间', trigger: 'change' }],
+});
+
+const openInterviewForm = () => {
+  if (interviewFormRef.value) interviewFormRef.value.resetFields();
+  interviewForm.applicationId = currentAppId.value;
+  
+  const now = new Date();
+  now.setMinutes(now.getMinutes() - now.getTimezoneOffset());
+  interviewForm.scheduleTime = now.toISOString().slice(0, 19);
+
+  interviewDialogVisible.value = true;
+};
+
+const submitInterview = () => {
+  interviewFormRef.value?.validate(async (valid) => {
+    if (valid) {
+      submitLoading.value = true;
+      try {
+        await request.post('/interviews', interviewForm);
+        ElMessage.success('面经与复盘记录保存成功');
+        interviewDialogVisible.value = false;
+        if (currentAppId.value) loadInterviews(currentAppId.value);
+      } catch (error) {}
+      finally { submitLoading.value = false; }
+    }
+  });
 };
 
 // ==== 其他 ====
