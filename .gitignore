@@ -1,0 +1,30 @@
+# ==========后端SpringBoot(backend)忽略配置==========
+# Maven编译产物，每次运行自动生成，必忽略
+backend/target/
+# IDEA配置文件
+backend/.idea/
+backend/*.iml
+backend/mvnw
+backend/mvnw.cmd
+
+# ==========前端Vue(frontend)忽略配置==========
+# 前端依赖包(几十MB~几百MB，禁止提交仓库)
+frontend/node_modules/
+# 前端打包产物
+frontend/dist/
+# VSCode个人配置
+frontend/.vscode/
+# npm日志
+frontend/npm-debug.log*
+frontend/yarn-error.log*
+
+# ==========全项目通用IDE/系统文件忽略==========
+# IDEA全项目配置
+.idea/
+*.iml
+# 日志文件
+*.log
+# Mac系统隐藏文件
+.DS_Store
+# 临时编译文件
+*.class
